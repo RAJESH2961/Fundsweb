@@ -1,0 +1,163 @@
+{
+  "info": {
+    "name": "PERN ERP",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api" },
+    { "key": "token", "value": "" },
+    { "key": "customerId", "value": "" },
+    { "key": "productId", "value": "" },
+    { "key": "enquiryId", "value": "" },
+    { "key": "quotationId", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "inventoryId", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [{
+            "listen": "test",
+            "script": { "exec": ["pm.collectionVariables.set('token', pm.response.json().data.token)"] }
+          }],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "url": "{{baseUrl}}/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"admin@erp.com\",\"password\":\"admin123\"}" }
+          }
+        },
+        { "name": "Me", "request": { "method": "GET", "url": "{{baseUrl}}/auth/me" } },
+        { "name": "Logout", "request": { "method": "POST", "url": "{{baseUrl}}/auth/logout" } }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/customers?page=1&pageSize=10" } },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/customers",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"companyName\":\"New Co\",\"contactPerson\":\"Jane\",\"email\":\"jane@newco.com\",\"mobile\":\"9876500000\",\"city\":\"Goa\"}" }
+          }
+        },
+        { "name": "Get", "request": { "method": "GET", "url": "{{baseUrl}}/customers/{{customerId}}" } },
+        {
+          "name": "Update",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/customers/{{customerId}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"city\":\"Goa\"}" }
+          }
+        },
+        { "name": "Delete", "request": { "method": "DELETE", "url": "{{baseUrl}}/customers/{{customerId}}" } }
+      ]
+    },
+    {
+      "name": "Products & Inventory",
+      "item": [
+        { "name": "List products", "request": { "method": "GET", "url": "{{baseUrl}}/products" } },
+        {
+          "name": "Create product (ADMIN)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/products",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"code\":\"NEW-001\",\"name\":\"New Product\",\"category\":\"Misc\",\"unit\":\"PCS\",\"basePrice\":1000,\"physicalQty\":50}" }
+          }
+        },
+        { "name": "List inventory", "request": { "method": "GET", "url": "{{baseUrl}}/inventory" } },
+        {
+          "name": "Update inventory (ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/inventory/{{inventoryId}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"physicalQty\":150}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Enquiries",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/enquiries?status=NEW" } },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/enquiries",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"customerId\":\"{{customerId}}\",\"items\":[{\"productId\":\"{{productId}}\",\"quantity\":5}]}" }
+          }
+        },
+        { "name": "Get", "request": { "method": "GET", "url": "{{baseUrl}}/enquiries/{{enquiryId}}" } },
+        {
+          "name": "Set status",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/enquiries/{{enquiryId}}/status",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"status\":\"QUOTED\"}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Quotations",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/quotations" } },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/quotations",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"enquiryId\":\"{{enquiryId}}\",\"validUntil\":\"2026-12-31\",\"items\":[{\"productId\":\"{{productId}}\",\"quantity\":5,\"unitPrice\":1000,\"discountPercent\":5,\"gstPercent\":18}]}" }
+          }
+        },
+        { "name": "Get", "request": { "method": "GET", "url": "{{baseUrl}}/quotations/{{quotationId}}" } },
+        {
+          "name": "Set status",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/quotations/{{quotationId}}/status",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"status\":\"ACCEPTED\"}" }
+          }
+        },
+        { "name": "Convert to order", "request": { "method": "POST", "url": "{{baseUrl}}/quotations/{{quotationId}}/convert" } }
+      ]
+    },
+    {
+      "name": "Sales Orders & Dispatch",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/sales-orders?status=PENDING" } },
+        { "name": "Get", "request": { "method": "GET", "url": "{{baseUrl}}/sales-orders/{{orderId}}" } },
+        { "name": "Confirm (ADMIN)", "request": { "method": "POST", "url": "{{baseUrl}}/sales-orders/{{orderId}}/confirm" } },
+        { "name": "Cancel (ADMIN)", "request": { "method": "POST", "url": "{{baseUrl}}/sales-orders/{{orderId}}/cancel" } },
+        {
+          "name": "Dispatch (ADMIN)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/sales-orders/{{orderId}}/dispatch",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"vehicleNumber\":\"MH12AB1234\",\"driverName\":\"Ravi Kumar\"}" }
+          }
+        }
+      ]
+    }
+  ]
+}
