@@ -111,14 +111,110 @@ Interactive API docs: **http://localhost:4000/api-docs**
 
 ## Business Workflow & Rules
 
-1. **Enquiry** — sales user picks a customer and adds ≥1 product rows; number auto-generated (`ENQ-YYYY-#####`). Statuses: `NEW → QUOTED → WON | LOST`.
-2. **Quotation** — created against an enquiry; the server computes base, discount, GST, line amount, and grand total (client totals are never trusted). Statuses: `DRAFT → SENT → ACCEPTED | REJECTED`.
-3. **Conversion** — only `ACCEPTED` quotations convert; `quotationId` is unique on `sales_orders` so duplicates return **409**.
-4. **Confirm (reservation)** — ADMIN only. Inside a PostgreSQL transaction, inventory rows are locked with `SELECT ... FOR UPDATE`, `available = physical - reserved - damaged` is checked, then `reservedQty` is incremented atomically. Insufficient stock → **422** + rollback. Concurrent confirms are serialized by row locks — only one succeeds.
-5. **Dispatch** — ADMIN only, requires `CONFIRMED`. Validates reserved stock, decrements `physicalQty` and `reservedQty`, creates dispatch + items, marks order `DISPATCHED` — all in one transaction.
-6. **Cancel** — confirmed orders release their reservation.
+### The big picture
 
-Inventory availability is always **calculated**, never stored.
+```
+ SALES_USER                          ADMIN
+    │                                 │
+    ▼                                 ▼
+Customer ──► Enquiry ──► Quotation ──► Sales Order ──► Reservation ──► Dispatch
+(create)    (NEW)       (DRAFT→      (PENDING)        (CONFIRMED)     (DISPATCHED)
+                        ACCEPTED)
+```
+
+Every stage is a real relational table — no workflow state is hidden in JSON columns. Each transition is enforced server-side; the UI only offers actions the current role + status allow.
+
+### Step 1 — Customer
+
+A `SALES_USER` (or ADMIN) registers the customer. Email must be unique; mobile format is validated by Zod.
+
+```
+POST /api/customers   → 201 { id, companyName, ... }
+```
+
+### Step 2 — Enquiry
+
+Sales user creates an enquiry for a customer with **one or more** product lines. The enquiry number is generated (`ENQ-2026-00042`), the creator is stamped from the JWT, and all items are inserted in one transaction.
+
+```
+POST /api/enquiries
+{ "customerId": "...", "requiredDate": "2026-10-15",
+  "items": [ { "productId": "...", "quantity": 10 }, ... ] }
+```
+
+Status machine: `NEW → QUOTED → WON | LOST` (`PATCH /api/enquiries/:id/status`). Creating a quotation auto-flips `NEW → QUOTED`.
+
+### Step 3 — Quotation
+
+Created against a `NEW`/`QUOTED` enquiry (`WON`/`LOST` are rejected). **The client never sends totals** — the server computes every line:
+
+```
+lineAmount = round2( qty × unitPrice × (1 − discount%) × (1 + gst%) )
+grandTotal = Σ lineAmount
+```
+
+Discount/GST are constrained to 0–100 by both Zod and DB CHECK constraints.
+
+```
+POST /api/quotations                    → 201 (DRAFT)
+PATCH /api/quotations/:id/status        → DRAFT → SENT → ACCEPTED | REJECTED
+```
+
+### Step 4 — Convert to Sales Order
+
+```
+POST /api/quotations/:id/convert
+```
+
+- `DRAFT`, `SENT`, `REJECTED` → **422** (only ACCEPTED converts)
+- Second conversion attempt → **409** (`sales_orders.quotationId` is UNIQUE — guaranteed at the DB level, race-safe)
+- On success: order number generated (`SO-2026-00007`), items + `grandTotal` copied for full traceability, status `PENDING`
+
+### Step 5 — Inventory reservation (confirm)
+
+```
+POST /api/sales-orders/:id/confirm        (ADMIN only → 403 for SALES_USER)
+```
+
+This is the critical transaction. Inside `prisma.$transaction`:
+
+1. Order is re-read; must be `PENDING` else **409**.
+2. Inventory rows for all ordered products are locked: `SELECT ... FOR UPDATE`.
+3. For each item, `available = physical − reserved − damaged` is checked.
+4. **Any** insufficient line → whole transaction rolls back → **422**; nothing is reserved.
+5. Otherwise `reservedQty += qty` per item (physical stock is untouched) and the order becomes `CONFIRMED`.
+
+Because the check happens while holding row locks, concurrent confirms are serialized — with 100 available, an 80-unit and a 50-unit confirm cannot both succeed. A DB CHECK constraint (`reservedQty + damagedQty ≤ physicalQty`) is the final backstop.
+
+### Step 6 — Dispatch
+
+```
+POST /api/sales-orders/:id/dispatch      (ADMIN only)
+{ "vehicleNumber": "MH12AB1234", "driverName": "Ravi" }
+```
+
+In one transaction: order must be `CONFIRMED` (not `PENDING`/`CANCELLED`/already `DISPATCHED` → **409**); locked inventory is re-validated; `physicalQty −= qty` and `reservedQty −= qty`; a `dispatch` + `dispatch_items` record is created (`DSP-2026-00003`); order → `DISPATCHED`.
+
+### Cancellation
+
+```
+POST /api/sales-orders/:id/cancel        (ADMIN)
+```
+
+`CONFIRMED` orders release their reservation (`reservedQty −= qty`) inside the same transaction that flips status to `CANCELLED`. `DISPATCHED` orders cannot be cancelled.
+
+### Inventory invariant
+
+```
+availableQty = physicalQty − reservedQty − damagedQty   (always computed, never stored)
+```
+
+| Event | physical | reserved | available |
+|---|---|---|---|
+| Seed stock | 100 | 0 | 100 |
+| Confirm order (80) | 100 | 80 | 20 |
+| Dispatch (80) | 20 | 0 | 20 |
+| Cancel confirmed (80) | 100 | 0 | 100 |
 
 ## API Overview
 
